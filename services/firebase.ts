@@ -12,19 +12,20 @@ const firebaseConfig = {
   measurementId: "G-RY1PFM2919"
 };
 
-// Initialize Firebase
-// Using a singleton pattern to avoid re-initialization in strict mode
 let app;
 try {
-  if (getApps().length === 0) {
-    app = initializeApp(firebaseConfig);
-    console.log("Firebase App Initialized");
-  } else {
-    app = getApp();
-    console.log("Firebase App reused");
-  }
+    // Initialize Firebase
+    // If apps are already initialized (e.g. during hot reload), use the existing one
+    if (getApps().length > 0) {
+      app = getApp();
+    } else {
+      app = initializeApp(firebaseConfig);
+    }
+    console.log("Firebase initialized successfully");
 } catch (e) {
-  console.error("Critical Firebase Init Error:", e);
+    console.error("Firebase Initialization Error:", e);
+    // Re-throw so the global error handler in index.html catches it and shows it on screen
+    throw new Error("Failed to initialize Firebase: " + (e instanceof Error ? e.message : String(e)));
 }
 
 // Export Firestore database reference
