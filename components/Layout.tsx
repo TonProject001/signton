@@ -24,7 +24,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
              <Monitor className="text-white w-5 h-5" />
           </div>
           <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-            CloudSignage
+            SignTon Pro
           </h1>
         </div>
 
