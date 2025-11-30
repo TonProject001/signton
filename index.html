@@ -45,20 +45,20 @@
       @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
     <!-- 
-      CRITICAL UPDATE: 
-      1. Switched to esm.sh for React 18 (Most stable)
-      2. Switched to gstatic for Firebase (Official Google CDN for Browsers)
-      3. Explicitly mapped react-dom/client
+      FIXED IMPORT MAP:
+      1. Removed React 19 references causing conflicts.
+      2. Added 'target=es2019' to ensure compatibility with older Android WebViews.
+      3. Kept Google CDN for Firebase for stability.
     -->
     <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client?deps=react@18.2.0",
-    "react-dom": "https://esm.sh/react-dom@18.2.0?deps=react@18.2.0",
-    "lucide-react": "https://esm.sh/lucide-react@0.263.1?deps=react@18.2.0",
-    "@google/genai": "https://esm.sh/@google/genai@0.1.1",
-    "react-router-dom": "https://esm.sh/react-router-dom@6.22.3?deps=react@18.2.0,react-dom@18.2.0",
+    "react": "https://esm.sh/react@18.2.0?target=es2019",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client?target=es2019&deps=react@18.2.0",
+    "react-dom": "https://esm.sh/react-dom@18.2.0?target=es2019&deps=react@18.2.0",
+    "lucide-react": "https://esm.sh/lucide-react@0.263.1?target=es2019&deps=react@18.2.0",
+    "@google/genai": "https://esm.sh/@google/genai@0.1.1?target=es2019",
+    "react-router-dom": "https://esm.sh/react-router-dom@6.22.3?target=es2019&deps=react@18.2.0,react-dom@18.2.0",
     "firebase/app": "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js",
     "firebase/firestore": "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
@@ -80,16 +80,16 @@
           <div class="loader"></div>
           <div class="text-center">
             <p id="loading-text" class="text-slate-400 text-sm font-mono animate-pulse">Initializing System...</p>
-            <p id="loading-subtext" class="text-slate-600 text-xs mt-2">Loading Core Modules</p>
+            <p id="loading-subtext" class="text-slate-600 text-xs mt-2">Loading Modules...</p>
           </div>
        </div>
     </div>
 
     <!-- Timeout Detection Script -->
     <script>
+      console.log("Browser Start Loading...");
       setTimeout(() => {
         const root = document.getElementById('root');
-        // If root still contains loading-indicator, it means React failed to mount
         if (document.getElementById('loading-indicator')) {
           const text = document.getElementById('loading-text');
           const sub = document.getElementById('loading-subtext');
@@ -98,11 +98,13 @@
              text.className = "text-yellow-500 font-bold text-lg";
           }
           if (sub) {
-             sub.innerHTML = "Internet might be slow or unstable.<br/>Try refreshing the page.";
+             sub.innerHTML = "Cannot start application.<br/>1. Check Internet<br/>2. Device might be too old<br/>3. Try refreshing";
              sub.className = "text-slate-400 text-sm mt-2";
           }
+          console.error("Timeout reached: App did not mount.");
         }
-      }, 15000); // 15 seconds timeout
+      }, 20000); // Increased to 20 seconds
     </script>
+    <script type="module" src="./index.tsx"></script>
   </body>
 </html>
