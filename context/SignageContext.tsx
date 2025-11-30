@@ -36,6 +36,11 @@ export const SignageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const items: MediaItem[] = [];
       snapshot.forEach((doc) => items.push(doc.data() as MediaItem));
       setState(prev => ({ ...prev, mediaLibrary: items }));
+    }, (error) => {
+       console.error("Media sync error:", error);
+       if (error.code === 'permission-denied') {
+         alert("การเชื่อมต่อถูกปฏิเสธ: กรุณาไปที่ Firebase Console > Firestore Database > Rules และตั้งค่าเป็น 'allow read, write: if true;'");
+       }
     });
 
     // 2. Listen to Playlists
@@ -59,69 +64,92 @@ export const SignageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, []);
 
+  // --- Helper for Errors ---
+  const handleError = (e: any, action: string) => {
+      console.error(`Error ${action}: `, e);
+      if (e.code === 'permission-denied') {
+          alert(`ไม่สามารถบันทึกข้อมูลได้ (${action}): ติดสิทธิ์การเข้าถึง\n\nวิธีแก้: ไปที่ Firebase Console -> Firestore Database -> Rules\nแล้วแก้เป็น allow read, write: if true;`);
+      } else if (e.code === 'resource-exhausted' || e.message?.includes('exceeds the maximum size')) {
+          alert("เกิดข้อผิดพลาด: ไฟล์มีขนาดใหญ่เกินไปสำหรับฐานข้อมูลฟรี (ต้องไม่เกิน 1MB)");
+      } else {
+          alert(`ไม่สามารถทำรายการได้ (${action}): ` + e.message);
+      }
+  };
+
   // --- Actions ---
 
   const addMedia = async (item: MediaItem) => {
     try {
-      // Note: Storing Base64 in Firestore 'url' field directly. 
-      // Firestore doc limit is 1MB. 720p compressed images usually fit.
       await setDoc(doc(db, 'media', item.id), item);
     } catch (e: any) {
-      console.error("Error adding media: ", e);
-      if (e.code === 'resource-exhausted' || e.message?.includes('exceeds the maximum size')) {
-          alert("เกิดข้อผิดพลาด: ไฟล์รูปภาพยังมีขนาดใหญ่เกินไปสำหรับฐานข้อมูลฟรี (ต้องไม่เกิน 1MB)");
-      } else {
-          alert("ไม่สามารถบันทึกข้อมูลได้: " + e.message);
-      }
+      handleError(e, 'addMedia');
     }
   };
 
   const removeMedia = async (id: string) => {
-    await deleteDoc(doc(db, 'media', id));
-    // Optional: Clean up usage in playlists is hard to do atomically without Cloud Functions,
-    // but the frontend handles missing media gracefully.
+    try {
+        await deleteDoc(doc(db, 'media', id));
+    } catch (e: any) {
+        handleError(e, 'removeMedia');
+    }
   };
 
   const savePlaylist = async (playlist: Playlist) => {
-    await setDoc(doc(db, 'playlists', playlist.id), playlist);
+    try {
+        await setDoc(doc(db, 'playlists', playlist.id), playlist);
+    } catch (e: any) {
+        handleError(e, 'savePlaylist');
+    }
   };
 
   const removePlaylist = async (id: string) => {
-    await deleteDoc(doc(db, 'playlists', id));
+    try {
+        await deleteDoc(doc(db, 'playlists', id));
+    } catch (e: any) {
+        handleError(e, 'removePlaylist');
+    }
   };
 
   const updateDevicePlaylist = async (deviceId: string, playlistId: string | null) => {
-    const deviceRef = doc(db, 'devices', deviceId);
-    await updateDoc(deviceRef, { assignedPlaylistId: playlistId });
+    try {
+        const deviceRef = doc(db, 'devices', deviceId);
+        await updateDoc(deviceRef, { assignedPlaylistId: playlistId });
+    } catch (e: any) {
+        handleError(e, 'updateDevicePlaylist');
+    }
   };
 
   const registerDevice = async (device: ScreenDevice) => {
-    const deviceRef = doc(db, 'devices', device.id);
-    const docSnap = await getDoc(deviceRef);
-    
-    if (!docSnap.exists()) {
-      await setDoc(deviceRef, device);
-    } else {
-      // Just update online status if already exists
-      await updateDoc(deviceRef, { 
-        status: 'online', 
-        lastPing: Date.now() 
-      });
+    try {
+        const deviceRef = doc(db, 'devices', device.id);
+        const docSnap = await getDoc(deviceRef);
+        
+        if (!docSnap.exists()) {
+          await setDoc(deviceRef, device);
+        } else {
+          await updateDoc(deviceRef, { 
+            status: 'online', 
+            lastPing: Date.now() 
+          });
+        }
+    } catch (e: any) {
+        // Silent error for registration mostly, but warn if permission denied
+        if (e.code === 'permission-denied') {
+            console.error("Device registration failed due to permissions");
+        }
     }
   };
 
   const heartbeat = async (deviceId: string) => {
-     const deviceRef = doc(db, 'devices', deviceId);
-     // Use updateDoc to just update the timestamp
      try {
+       const deviceRef = doc(db, 'devices', deviceId);
        await updateDoc(deviceRef, { lastPing: Date.now(), status: 'online' });
      } catch (e) {
-       // Ignore if device deleted
+       // Ignore errors on heartbeat to avoid spamming
      }
   };
 
   const refreshState = useCallback(() => {
-     // No-op for Firestore as it's realtime, but kept for compatibility
      console.log("Refreshed (Realtime)");
   }, []);
 
