@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useSignage } from '../context/SignageContext';
 import { MediaType, Playlist, ScreenDevice } from '../types';
-import { WifiOff, Clock, Settings, Save, Monitor } from 'lucide-react';
+import { WifiOff, Clock, Settings, Save, Monitor, AlertCircle } from 'lucide-react';
 
 export const PlayerView: React.FC = () => {
   const { state, getMediaById, registerDevice, heartbeat } = useSignage();
@@ -49,18 +49,16 @@ export const PlayerView: React.FC = () => {
     
     // Initial Register (in case it wasn't registered before or data was cleared on server)
     const initRegister = async () => {
-        const deviceExists = state.devices.some(d => d.id === deviceId);
-        if (!deviceExists) {
-             const newDevice: ScreenDevice = {
-                id: deviceId,
-                name: `Device ${deviceId}`,
-                location: 'Auto-Registered',
-                status: 'online',
-                assignedPlaylistId: null,
-                lastPing: Date.now()
-            };
-            await registerDevice(newDevice);
-        }
+        // We attempt to register regardless to ensure the device doc exists
+        const newDevice: ScreenDevice = {
+            id: deviceId,
+            name: `Device ${deviceId}`,
+            location: 'Auto-Registered',
+            status: 'online',
+            assignedPlaylistId: null,
+            lastPing: Date.now()
+        };
+        await registerDevice(newDevice);
     };
     initRegister();
 
@@ -195,18 +193,38 @@ export const PlayerView: React.FC = () => {
 
   // --- RENDER: NO CONTENT ---
   if (!activePlaylist || !currentMedia) {
+    // Check if system has ANY playlists (to distinguish between "No playlists exist" vs "Schedule not matching")
+    const hasAnyPlaylists = state.playlists.length > 0;
+
     return (
       <div className="h-screen w-screen bg-black flex flex-col items-center justify-center text-slate-500 relative group">
-        <Clock className="w-16 h-16 mb-4 opacity-50" />
-        <h2 className="text-xl font-light">ไม่อยู่ในช่วงเวลาออกอากาศ</h2>
-        <p className="text-sm mt-2 font-mono">ID: {deviceId}</p>
+        <div className="bg-slate-900/50 p-8 rounded-2xl border border-slate-800 flex flex-col items-center max-w-md text-center">
+            {hasAnyPlaylists ? (
+                <>
+                    <Clock className="w-16 h-16 mb-4 text-yellow-500/50" />
+                    <h2 className="text-xl font-bold text-slate-300">ไม่อยู่ในช่วงเวลาออกอากาศ</h2>
+                    <p className="text-sm mt-2 text-slate-500">ขณะนี้ไม่มีตารางเวลาเล่นสำหรับเวลานี้</p>
+                </>
+            ) : (
+                <>
+                    <AlertCircle className="w-16 h-16 mb-4 text-red-500/50" />
+                    <h2 className="text-xl font-bold text-slate-300">ยังไม่มีเพลย์ลิสต์ในระบบ</h2>
+                    <p className="text-sm mt-2 text-slate-500">กรุณาไปที่ Admin Dashboard เพื่อสร้างเพลย์ลิสต์และเพิ่มสื่อ</p>
+                </>
+            )}
+            
+            <div className="mt-6 pt-4 border-t border-slate-800 w-full">
+                <p className="text-xs font-mono text-slate-600">DEVICE ID: <span className="text-blue-400">{deviceId}</span></p>
+            </div>
+        </div>
         
         {/* Secret Reset Button (Visible on hover bottom right) */}
         <button 
           onClick={handleResetDevice}
-          className="absolute bottom-4 right-4 p-2 text-slate-700 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute bottom-4 right-4 p-2 text-slate-700 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2"
           title="Reset Device ID"
         >
+          <span className="text-xs">Reset ID</span>
           <Settings className="w-4 h-4" />
         </button>
       </div>
