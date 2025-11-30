@@ -1,6 +1,8 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
+console.log("Starting Firebase Service...");
+
 // Config from Firebase Console -> Project settings -> General
 const firebaseConfig = {
   apiKey: "AIzaSyDI_-8WMyMbnqq3OLnpNL2Q-FVNIOhR340",
@@ -14,19 +16,18 @@ const firebaseConfig = {
 
 let app;
 try {
-    // Initialize Firebase
-    // If apps are already initialized (e.g. during hot reload), use the existing one
     if (getApps().length > 0) {
       app = getApp();
+      console.log("Firebase App: Reused existing instance");
     } else {
       app = initializeApp(firebaseConfig);
+      console.log("Firebase App: Initialized new instance");
     }
-    console.log("Firebase initialized successfully");
 } catch (e) {
-    console.error("Firebase Initialization Error:", e);
-    // Re-throw so the global error handler in index.html catches it and shows it on screen
-    throw new Error("Failed to initialize Firebase: " + (e instanceof Error ? e.message : String(e)));
+    console.error("Critical: Firebase Init Failed", e);
+    throw e;
 }
 
 // Export Firestore database reference
 export const db = getFirestore(app);
+console.log("Firestore Service Ready");
