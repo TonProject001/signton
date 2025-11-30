@@ -6,6 +6,34 @@
     <meta name="theme-color" content="#0f172a" />
     <title>SignTon v.2 Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // Global Error Handler for TV Boxes/Kiosk Mode
+      window.onerror = function(msg, url, line, col, error) {
+        const log = document.getElementById('error-log');
+        const root = document.getElementById('root');
+        if (log) {
+          log.style.display = 'block';
+          // Hide loader if error occurs
+          const loader = document.getElementById('loading-indicator');
+          if(loader) loader.style.display = 'none';
+          
+          log.innerHTML += `<div class="mb-2"><strong>Error:</strong> ${msg}<br/><span class="text-xs opacity-75">${url}:${line}</span></div>`;
+        }
+        return false;
+      };
+
+      window.onunhandledrejection = function(event) {
+        const log = document.getElementById('error-log');
+        if (log) {
+          log.style.display = 'block';
+           // Hide loader if error occurs
+          const loader = document.getElementById('loading-indicator');
+          if(loader) loader.style.display = 'none';
+
+          log.innerHTML += `<div class="mb-2"><strong>Promise Error:</strong> ${event.reason}</div>`;
+        }
+      };
+    </script>
     <style>
       /* Hide scrollbar for the player view */
       .no-scrollbar::-webkit-scrollbar {
@@ -44,18 +72,25 @@
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6",
-    "firebase/app": "https://www.gstatic.com/firebasejs/10.14.0/firebase-app.js",
-    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore.js",
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^6.22.3",
+    "firebase/app": "https://esm.sh/firebase@10.13.2/app",
+    "firebase/firestore": "https://esm.sh/firebase@10.13.2/firestore?deps=firebase@10.13.2/app",
     "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/"
   }
 }
 </script>
 </head>
   <body class="bg-slate-950 text-slate-100 antialiased overflow-hidden">
-    <div id="root" class="h-screen w-screen flex flex-col items-center justify-center">
-      <div class="loader mb-4"></div>
-      <p class="text-slate-500 text-sm font-mono animate-pulse">Initializing System...</p>
+    <!-- Error Logger (Hidden by default) -->
+    <div id="error-log" class="fixed top-0 left-0 w-full bg-red-900/90 text-white p-4 z-[9999] hidden font-mono text-sm max-h-screen overflow-auto border-b-2 border-red-500">
+      <h3 class="font-bold border-b border-red-400 pb-2 mb-2 text-red-200">System Error Log:</h3>
+    </div>
+
+    <div id="root" class="h-screen w-screen">
+       <div id="loading-indicator" class="h-full w-full flex flex-col items-center justify-center">
+          <div class="loader mb-4"></div>
+          <p class="text-slate-500 text-sm font-mono animate-pulse">Initializing System...</p>
+       </div>
     </div>
   </body>
 </html>
