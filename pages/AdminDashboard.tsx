@@ -1,14 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useSignage } from '../context/SignageContext';
 import { Layout } from '../components/Layout';
-import { Plus, Tv, Play, Trash2, Upload, Clock, Film, Image as ImageIcon, Save, X, Edit, Crop, Monitor, Smartphone, Link as LinkIcon, Eye, GripVertical, AlertTriangle, Youtube } from 'lucide-react';
-import { MediaType, MediaItem, Playlist, Orientation } from '../types';
+import { Plus, Tv, Play, Trash2, Upload, Clock, Film, Image as ImageIcon, Save, X, Edit, Crop, Monitor, Smartphone, Link as LinkIcon, Eye, GripVertical, AlertTriangle, Wand2, RefreshCw, Power } from 'lucide-react';
+import { MediaType, MediaItem, Playlist, Orientation, ScreenDevice } from '../types';
+import { generateSmartPlaylistValues } from '../services/geminiService';
 
 // --- Helper: Get YouTube ID ---
-const getYouTubeId = (url: string) => {
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = url.match(regExp);
-    return (match && match[2].length === 11) ? match[2] : null;
+const getYouTubeId = (url: string | undefined) => {
+    if (!url || typeof url !== 'string') return null;
+    try {
+        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+        const match = url.match(regExp);
+        return (match && match[2].length === 11) ? match[2] : null;
+    } catch(e) {
+        return null;
+    }
 };
 
 // --- Components for Dialogs/Modals ---
@@ -471,7 +477,7 @@ const PlaylistEditor: React.FC<{
                                 <img src={item.url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
                             ) : (
                                 <div className="w-full h-full flex items-center justify-center bg-slate-800 relative">
-                                    {isYoutube ? <Youtube className="w-8 h-8 text-red-500 z-10" /> : <Film className="w-8 h-8 text-slate-500 group-hover:text-blue-400" />}
+                                    {isYoutube ? <Film className="w-8 h-8 text-red-500 z-10" /> : <Film className="w-8 h-8 text-slate-500 group-hover:text-blue-400" />}
                                     {isYoutube && <img src={`https://img.youtube.com/vi/${getYouTubeId(item.url)}/hqdefault.jpg`} className="absolute inset-0 w-full h-full object-cover opacity-50" />}
                                 </div>
                             )}
@@ -522,7 +528,7 @@ const PlaylistEditor: React.FC<{
                                     <img src={media.url} className="w-full h-full object-cover" />
                                 ) : (
                                     <div className="w-full h-full flex items-center justify-center">
-                                         {isYoutube ? <Youtube className="w-4 h-4 text-red-500 z-10" /> : <Film className="w-4 h-4" />}
+                                         {isYoutube ? <Film className="w-4 h-4 text-red-500 z-10" /> : <Film className="w-4 h-4" />}
                                          {isYoutube && <img src={`https://img.youtube.com/vi/${getYouTubeId(media.url)}/mqdefault.jpg`} className="absolute inset-0 w-full h-full object-cover opacity-50" />}
                                     </div>
                                 )}
@@ -574,328 +580,438 @@ const PlaylistEditor: React.FC<{
   );
 };
 
-
-// --- Main Dashboard ---
-
 export const AdminDashboard: React.FC = () => {
-  const { state, addMedia, removeMedia, savePlaylist, removePlaylist, updateDevicePlaylist } = useSignage();
+  const { state, addMedia, removeMedia, savePlaylist, removePlaylist, updateDevicePlaylist, refreshState } = useSignage();
   const [activeTab, setActiveTab] = useState('dashboard');
-  
-  // Modals State
-  const [showCropModal, setShowCropModal] = useState(false);
-  const [selectedFileForCrop, setSelectedFileForCrop] = useState<File | null>(null);
-  
-  const [showPlaylistModal, setShowPlaylistModal] = useState(false);
-  const [playlistToEdit, setPlaylistToEdit] = useState<Playlist | undefined>(undefined);
 
+  // Modal States
+  const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
+  const [isPlaylistModalOpen, setIsPlaylistModalOpen] = useState(false);
+  const [editingPlaylist, setEditingPlaylist] = useState<Playlist | undefined>(undefined);
   const [previewItem, setPreviewItem] = useState<MediaItem | null>(null);
 
-  // Video Link State
-  const [videoUrlInput, setVideoUrlInput] = useState('');
-  const [videoNameInput, setVideoNameInput] = useState('');
+  // AI Modal
+  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
 
-  // 1. Handlers for Media
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.type.startsWith('image')) {
-        setSelectedFileForCrop(file);
-        setShowCropModal(true);
-        // Reset input value so same file can be selected again
-        e.target.value = '';
-      } else {
-         alert("สำหรับวิดีโอ กรุณาใช้ช่องเพิ่มลิงก์ด้านล่างเพื่อประสิทธิภาพที่ดีที่สุด");
-      }
+  // Upload States
+  const [uploadTab, setUploadTab] = useState<'image' | 'video'>('image');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [videoUrl, setVideoUrl] = useState('');
+  const [videoName, setVideoName] = useState('');
+
+  // --- Actions ---
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setUploadFile(e.target.files[0]);
     }
   };
 
-  const onCropConfirm = async (base64: string, orientation: Orientation) => {
-     if (!selectedFileForCrop) return;
+  const handleConfirmUpload = async (base64: string, orientation: Orientation) => {
+     if (!uploadFile) return;
      const newItem: MediaItem = {
          id: Date.now().toString(),
-         name: selectedFileForCrop.name,
          type: MediaType.IMAGE,
          url: base64,
+         name: uploadFile.name,
          duration: 10,
          orientation: orientation
      };
      await addMedia(newItem);
-     setShowCropModal(false);
-     setSelectedFileForCrop(null);
+     setUploadFile(null);
+     setIsMediaModalOpen(false);
   };
 
-  const handleAddVideoLink = () => {
-    if (videoUrlInput && videoNameInput) {
-        // Updated: Allow YouTube links
-        const newItem: MediaItem = {
-            id: Date.now().toString(),
-            name: videoNameInput,
-            type: MediaType.VIDEO,
-            url: videoUrlInput,
-            duration: 30, // Default duration for video/youtube
-            orientation: 'landscape' // Default for video
-        };
-        addMedia(newItem);
-        setVideoUrlInput('');
-        setVideoNameInput('');
-    }
+  const handleAddVideo = async () => {
+      if (!videoUrl || !videoName) return alert("กรุณากรอกข้อมูลให้ครบ");
+      const newItem: MediaItem = {
+          id: Date.now().toString(),
+          type: MediaType.VIDEO,
+          url: videoUrl,
+          name: videoName,
+          duration: 30,
+          orientation: 'landscape'
+      };
+      await addMedia(newItem);
+      setVideoUrl('');
+      setVideoName('');
+      setIsMediaModalOpen(false);
   };
 
-  // 2. Handlers for Playlists
-  const openNewPlaylist = () => {
-      setPlaylistToEdit(undefined);
-      setShowPlaylistModal(true);
-  };
-  
-  const openEditPlaylist = (p: Playlist) => {
-      setPlaylistToEdit(p);
-      setShowPlaylistModal(true);
+  const handleDeleteMedia = async (id: string) => {
+      if (confirm("คุณแน่ใจหรือไม่ที่จะลบสื่อนี้? (หากอยู่ในเพลย์ลิสต์อาจทำให้เกิดข้อผิดพลาด)")) {
+          await removeMedia(id);
+      }
   };
 
-  const handleSavePlaylist = (p: Playlist) => {
-      savePlaylist(p);
-      setShowPlaylistModal(false);
+  const handleSavePlaylist = async (playlist: Playlist) => {
+      await savePlaylist(playlist);
+      setIsPlaylistModalOpen(false);
+      setEditingPlaylist(undefined);
   };
 
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'dashboard':
-        return (
-          <div className="space-y-6">
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800">
-                 <h3 className="text-slate-400 text-sm mb-2">จอที่ออนไลน์</h3>
-                 <p className="text-3xl font-bold text-green-400">{state.devices.filter(d => d.status === 'online').length} / {state.devices.length}</p>
+  const handleDeletePlaylist = async (id: string) => {
+      if (confirm("ยืนยันการลบเพลย์ลิสต์นี้?")) {
+          await removePlaylist(id);
+      }
+  };
+
+  const handleAssignPlaylist = async (deviceId: string, playlistId: string) => {
+      const pId = playlistId === 'none' ? null : playlistId;
+      await updateDevicePlaylist(deviceId, pId);
+  };
+
+  // --- AI Generator ---
+  const handleGenerateAI = async () => {
+      if (!aiPrompt) return;
+      setIsAiLoading(true);
+      
+      const mediaNames = state.mediaLibrary.map(m => m.name);
+      const result = await generateSmartPlaylistValues(aiPrompt, mediaNames);
+
+      if (result) {
+          const suggestedItems = state.mediaLibrary.map(m => ({
+              mediaId: m.id,
+              duration: result.suggestedDuration
+          }));
+
+          const newPlaylist: Playlist = {
+              id: Date.now().toString(),
+              name: result.name + " (AI)",
+              orientation: 'landscape',
+              schedule: {
+                  days: [0,1,2,3,4,5,6],
+                  startTime: '08:00',
+                  endTime: '20:00',
+                  active: true
+              },
+              items: suggestedItems.slice(0, 10) // Limit to 10 items for demo
+          };
+
+          setEditingPlaylist(newPlaylist);
+          setIsAIModalOpen(false);
+          setIsPlaylistModalOpen(true);
+          setAiPrompt('');
+      } else {
+          alert("AI ไม่สามารถสร้างเพลย์ลิสต์ได้ในขณะนี้");
+      }
+      setIsAiLoading(false);
+  };
+
+  // --- Render Sections ---
+
+  const renderDashboard = () => (
+      <div className="space-y-6">
+          {/* Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-slate-900 p-6 rounded-xl border border-slate-800">
+                  <div className="text-slate-400 text-sm mb-1">จอทั้งหมด</div>
+                  <div className="text-3xl font-bold text-white">{state.devices.length}</div>
               </div>
-               <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800">
-                 <h3 className="text-slate-400 text-sm mb-2">เพลย์ลิสต์ทั้งหมด</h3>
-                 <p className="text-3xl font-bold text-blue-400">{state.playlists.length}</p>
+              <div className="bg-slate-900 p-6 rounded-xl border border-slate-800">
+                  <div className="text-slate-400 text-sm mb-1">ออนไลน์</div>
+                  <div className="text-3xl font-bold text-green-400">
+                      {state.devices.filter(d => (Date.now() - d.lastPing) < 60000).length}
+                  </div>
               </div>
-            </div>
+              <div className="bg-slate-900 p-6 rounded-xl border border-slate-800">
+                  <div className="text-slate-400 text-sm mb-1">ไฟล์สื่อ</div>
+                  <div className="text-3xl font-bold text-blue-400">{state.mediaLibrary.length}</div>
+              </div>
+              <div className="bg-slate-900 p-6 rounded-xl border border-slate-800">
+                  <div className="text-slate-400 text-sm mb-1">เพลย์ลิสต์</div>
+                  <div className="text-3xl font-bold text-purple-400">{state.playlists.length}</div>
+              </div>
+          </div>
 
-            {/* Device Table */}
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
-              <div className="p-6 border-b border-slate-800">
-                <h2 className="text-lg font-semibold text-white">จัดการอุปกรณ์</h2>
+          {/* Device Table */}
+          <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+              <div className="p-4 border-b border-slate-800 flex justify-between items-center">
+                  <h3 className="font-bold text-white">จัดการหน้าจอ (Devices)</h3>
+                  <button onClick={refreshState} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400"><RefreshCw className="w-4 h-4"/></button>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-950/50 text-slate-400 text-sm">
-                    <tr>
-                      <th className="p-4">ชื่ออุปกรณ์</th>
-                      <th className="p-4">สถานที่</th>
-                      <th className="p-4">สถานะ</th>
-                      <th className="p-4">คำสั่ง (บังคับเพลย์ลิสต์)</th>
-                    </tr>
+              <table className="w-full text-left">
+                  <thead className="bg-slate-950 text-slate-400 text-sm">
+                      <tr>
+                          <th className="p-4">สถานะ</th>
+                          <th className="p-4">ชื่อจอ / ID</th>
+                          <th className="p-4">เพลย์ลิสต์ที่กำหนด</th>
+                          <th className="p-4">อัปเดตล่าสุด</th>
+                      </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {state.devices.map(device => (
-                      <tr key={device.id} className="text-slate-300">
-                        <td className="p-4 font-medium">{device.name}</td>
-                        <td className="p-4">{device.location}</td>
-                        <td className="p-4">
-                            <span className={`px-2 py-1 rounded text-xs ${device.status === 'online' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
-                                {device.status === 'online' ? 'Online' : 'Offline'}
-                            </span>
-                        </td>
-                        <td className="p-4">
-                            <select 
-                                className="bg-slate-800 border-none text-sm rounded text-slate-300 focus:ring-1 focus:ring-blue-500 w-full max-w-xs"
-                                value={device.assignedPlaylistId || ''}
-                                onChange={(e) => updateDevicePlaylist(device.id, e.target.value || null)}
-                            >
-                                <option value="">อัตโนมัติตามตารางเวลา</option>
-                                {state.playlists.map(p => (
-                                    <option key={p.id} value={p.id}>[บังคับ] {p.name}</option>
-                                ))}
-                            </select>
-                        </td>
-                      </tr>
-                    ))}
+                      {state.devices.length === 0 && (
+                          <tr><td colSpan={4} className="p-8 text-center text-slate-500">ยังไม่มีการลงทะเบียนจอ</td></tr>
+                      )}
+                      {state.devices.map(device => {
+                          const isOnline = (Date.now() - device.lastPing) < 60000;
+                          return (
+                              <tr key={device.id} className="hover:bg-slate-800/50">
+                                  <td className="p-4">
+                                      <div className={`flex items-center gap-2 ${isOnline ? 'text-green-400' : 'text-slate-500'}`}>
+                                          <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-slate-600'}`}></div>
+                                          <span className="text-sm font-medium">{isOnline ? 'Online' : 'Offline'}</span>
+                                      </div>
+                                  </td>
+                                  <td className="p-4">
+                                      <div className="font-medium text-white">{device.name}</div>
+                                      <div className="text-xs text-slate-500 font-mono">{device.id}</div>
+                                  </td>
+                                  <td className="p-4">
+                                      <select 
+                                          value={device.assignedPlaylistId || 'none'}
+                                          onChange={(e) => handleAssignPlaylist(device.id, e.target.value)}
+                                          className="bg-slate-950 border border-slate-700 text-slate-300 text-sm rounded px-3 py-1.5 focus:border-blue-500 outline-none"
+                                      >
+                                          <option value="none">-- ตามตารางเวลา --</option>
+                                          {state.playlists.map(p => (
+                                              <option key={p.id} value={p.id}>{p.name}</option>
+                                          ))}
+                                      </select>
+                                  </td>
+                                  <td className="p-4 text-slate-500 text-sm">
+                                      {new Date(device.lastPing).toLocaleTimeString('th-TH')}
+                                  </td>
+                              </tr>
+                          );
+                      })}
                   </tbody>
-                </table>
-              </div>
-            </div>
+              </table>
           </div>
-        );
+      </div>
+  );
 
-      case 'media':
-        return (
-          <div className="space-y-6">
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <h2 className="text-2xl font-bold">คลังรูปและวิดีโอ</h2>
-              <label className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg cursor-pointer transition-colors shadow-lg shadow-blue-900/30">
-                  <Upload className="w-4 h-4" />
-                  <span>อัปโหลดรูปภาพใหม่ (พร้อมตัด)</span>
-                  <input type="file" className="hidden" accept="image/*" onChange={handleFileSelect} />
-              </label>
-            </div>
+  const renderMedia = () => (
+      <div className="space-y-6">
+          <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold text-white">คลังสื่อ (Media Library)</h2>
+              <button 
+                onClick={() => { setUploadFile(null); setVideoUrl(''); setIsMediaModalOpen(true); }}
+                className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium"
+              >
+                  <Upload className="w-4 h-4" /> เพิ่มสื่อใหม่
+              </button>
+          </div>
 
-            {/* Video Input */}
-            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col gap-2">
-                <div className="flex gap-4 items-end flex-wrap">
-                    <div className="flex-1 min-w-[200px]">
-                        <label className="block text-xs text-slate-400 mb-1">ชื่อวิดีโอ / YouTube</label>
-                        <input type="text" value={videoNameInput} onChange={e => setVideoNameInput(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm" placeholder="เช่น โฆษณาตัวที่ 1" />
-                    </div>
-                    <div className="flex-[2] min-w-[300px]">
-                        <label className="block text-xs text-slate-400 mb-1">ลิงก์วิดีโอ (YouTube หรือไฟล์ .mp4)</label>
-                        <input type="text" value={videoUrlInput} onChange={e => setVideoUrlInput(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm" placeholder="https://youtube.com/watch?v=... หรือ https://site.com/video.mp4" />
-                    </div>
-                    <button onClick={handleAddVideoLink} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
-                        <LinkIcon className="w-4 h-4" /> เพิ่มวิดีโอ
-                    </button>
-                </div>
-                <p className="text-xs text-slate-500 flex items-center gap-1">
-                    <Youtube className="w-3 h-3 text-red-500" />
-                    รองรับ YouTube Link (กรุณาตั้งเวลาเล่นให้ตรงกับความยาวคลิป) และไฟล์ .mp4
-                </p>
-            </div>
-            
-            {/* Gallery */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {state.mediaLibrary.map(item => {
-                const isYoutube = item.type === MediaType.VIDEO && getYouTubeId(item.url);
-                return (
-                    <div key={item.id} className="group relative bg-slate-900 rounded-xl overflow-hidden border border-slate-800 hover:border-blue-500/50 transition-all shadow-sm hover:shadow-xl">
-                    <div className="aspect-video bg-slate-800 relative cursor-pointer" onClick={() => setPreviewItem(item)}>
-                        {item.type === MediaType.IMAGE ? (
-                            <img src={item.url} alt={item.name} className="w-full h-full object-cover" />
-                        ) : (
-                            <div className="w-full h-full flex items-center justify-center relative">
-                                {isYoutube ? <Youtube className="w-8 h-8 text-red-500 z-10" /> : <Film className="w-8 h-8 text-slate-500" />}
-                                {isYoutube && <img src={`https://img.youtube.com/vi/${getYouTubeId(item.url)}/hqdefault.jpg`} className="absolute inset-0 w-full h-full object-cover opacity-50" />}
-                            </div>
-                        )}
-                        <div className="absolute top-2 right-2 flex gap-1 z-10">
-                            {/* Preview Icon */}
-                            <div className="w-6 h-6 bg-black/60 rounded-full flex items-center justify-center text-white backdrop-blur hover:bg-blue-600 transition-colors">
-                                <Eye className="w-3 h-3" />
-                            </div>
-                        </div>
-                        <div className="absolute bottom-2 right-2 flex gap-1 z-10">
-                            <span className="px-1.5 py-0.5 bg-black/60 rounded text-[10px] text-white backdrop-blur">
-                                {item.orientation === 'portrait' ? 'แนวตั้ง' : 'แนวนอน'}
-                            </span>
-                        </div>
-                    </div>
-                    <div className="p-3 flex justify-between items-start">
-                        <div className="min-w-0">
-                            <p className="font-medium text-sm truncate text-slate-200">{item.name}</p>
-                        </div>
-                        <button onClick={(e) => { e.stopPropagation(); removeMedia(item.id); }} className="text-slate-600 hover:text-red-400 transition-colors p-1">
-                            <Trash2 className="w-4 h-4" />
-                        </button>
-                    </div>
-                    </div>
-                );
+                  const isYoutube = item.type === MediaType.VIDEO && getYouTubeId(item.url);
+                  return (
+                      <div key={item.id} className="group relative bg-slate-900 rounded-lg overflow-hidden border border-slate-800 hover:border-blue-500 transition-all">
+                          <div className="aspect-video bg-black relative">
+                              {item.type === MediaType.IMAGE ? (
+                                  <img src={item.url} className="w-full h-full object-cover" />
+                              ) : (
+                                  <div className="w-full h-full flex items-center justify-center relative">
+                                       <Film className="w-8 h-8 text-slate-600" />
+                                       {isYoutube && <img src={`https://img.youtube.com/vi/${getYouTubeId(item.url)}/mqdefault.jpg`} className="absolute inset-0 w-full h-full object-cover opacity-60" />}
+                                       <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/40 transition-opacity">
+                                           <Play className="w-8 h-8 text-white drop-shadow-lg" fill="white" />
+                                       </div>
+                                  </div>
+                              )}
+                              <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button onClick={() => setPreviewItem(item)} className="p-1.5 bg-black/60 text-white rounded hover:bg-blue-600"><Eye className="w-3 h-3"/></button>
+                                  <button onClick={() => handleDeleteMedia(item.id)} className="p-1.5 bg-black/60 text-white rounded hover:bg-red-600"><Trash2 className="w-3 h-3"/></button>
+                              </div>
+                              <span className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded">
+                                  {item.orientation === 'portrait' ? 'แนวตั้ง' : 'แนวนอน'}
+                              </span>
+                          </div>
+                          <div className="p-3">
+                              <div className="font-medium text-white truncate text-sm" title={item.name}>{item.name}</div>
+                              <div className="text-xs text-slate-500 mt-1">{item.type}</div>
+                          </div>
+                      </div>
+                  );
               })}
-            </div>
           </div>
-        );
+      </div>
+  );
 
-      case 'playlists':
-        return (
-            <div className="space-y-6">
-                 <div className="flex items-center justify-between">
-                    <h2 className="text-2xl font-bold">เพลย์ลิสต์ (ตารางเวลา)</h2>
-                    <button onClick={openNewPlaylist} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-lg shadow-blue-900/30">
-                        <Plus className="w-4 h-4" />
-                        <span>สร้างเพลย์ลิสต์ใหม่</span>
-                    </button>
-                </div>
+  const renderPlaylists = () => (
+      <div className="space-y-6">
+          <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold text-white">เพลย์ลิสต์ (Playlists)</h2>
+              <div className="flex gap-2">
+                <button 
+                    onClick={() => setIsAIModalOpen(true)}
+                    className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium"
+                >
+                    <Wand2 className="w-4 h-4" /> สร้างด้วย AI
+                </button>
+                <button 
+                    onClick={() => { setEditingPlaylist(undefined); setIsPlaylistModalOpen(true); }}
+                    className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium"
+                >
+                    <Plus className="w-4 h-4" /> สร้างใหม่
+                </button>
+              </div>
+          </div>
 
-                <div className="grid grid-cols-1 gap-4">
-                    {state.playlists.map(playlist => (
-                        <div key={playlist.id} className="bg-slate-900 p-5 rounded-xl border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
-                            <div className="flex-1">
-                                <div className="flex items-center gap-3 mb-1">
-                                    <h4 className="font-bold text-lg text-white">{playlist.name}</h4>
-                                    <span className={`px-2 py-0.5 rounded text-[10px] border ${playlist.orientation === 'landscape' ? 'border-blue-500/30 text-blue-400' : 'border-purple-500/30 text-purple-400'}`}>
-                                        {playlist.orientation === 'landscape' ? 'จอแนวนอน' : 'จอแนวตั้ง'}
-                                    </span>
-                                </div>
-                                <div className="flex flex-wrap gap-4 text-sm text-slate-400">
-                                    <div className="flex items-center gap-1">
-                                        <Clock className="w-4 h-4" />
-                                        <span>{playlist.schedule.startTime} - {playlist.schedule.endTime}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                        <span>{playlist.schedule.days.length === 7 ? 'ทุกวัน' : `${playlist.schedule.days.length} วัน/สัปดาห์`}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                        <Film className="w-4 h-4" />
-                                        <span>{playlist.items.length} รายการ</span>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            {/* Playlist Preview Strip */}
-                            <div className="flex -space-x-2">
-                                {playlist.items.slice(0, 5).map((item, idx) => {
-                                    const media = state.mediaLibrary.find(m => m.id === item.mediaId);
-                                    if(!media) return null;
-                                    const isYoutube = media.type === MediaType.VIDEO && getYouTubeId(media.url);
-                                    return (
-                                        <div key={idx} className="w-10 h-10 rounded-full border-2 border-slate-900 bg-slate-800 overflow-hidden relative">
-                                            {media.type === MediaType.IMAGE ? 
-                                                <img src={media.url} className="w-full h-full object-cover" /> :
-                                                <div className="w-full h-full flex items-center justify-center">
-                                                    {isYoutube ? <Youtube className="w-4 h-4 text-red-500 z-10" /> : <Film className="w-4 h-4" />}
-                                                </div>
-                                            }
-                                        </div>
-                                    );
-                                })}
-                            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {state.playlists.map(playlist => (
+                  <div key={playlist.id} className="bg-slate-900 rounded-xl border border-slate-800 p-5 hover:border-blue-500 transition-all group">
+                      <div className="flex justify-between items-start mb-4">
+                          <div>
+                              <h3 className="font-bold text-lg text-white group-hover:text-blue-400 transition-colors">{playlist.name}</h3>
+                              <div className="flex items-center gap-2 text-sm text-slate-400 mt-1">
+                                  {playlist.orientation === 'landscape' ? <Monitor className="w-3 h-3"/> : <Smartphone className="w-3 h-3"/>}
+                                  <span>{playlist.orientation}</span>
+                                  <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
+                                  <span>{playlist.items.length} รายการ</span>
+                              </div>
+                          </div>
+                          <div className="flex gap-1">
+                              <button onClick={() => { setEditingPlaylist(playlist); setIsPlaylistModalOpen(true); }} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg"><Edit className="w-4 h-4"/></button>
+                              <button onClick={() => handleDeletePlaylist(playlist.id)} className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-lg"><Trash2 className="w-4 h-4"/></button>
+                          </div>
+                      </div>
+                      
+                      <div className="bg-slate-950 rounded-lg p-3 border border-slate-800 mb-4">
+                          <div className="flex items-center gap-2 text-xs text-slate-400 mb-2">
+                              <Clock className="w-3 h-3 text-blue-500"/>
+                              <span>{playlist.schedule.startTime} - {playlist.schedule.endTime}</span>
+                          </div>
+                          <div className="flex gap-1">
+                              {['อา','จ','อ','พ','พฤ','ศ','ส'].map((d, i) => (
+                                  <div key={i} className={`w-6 h-6 rounded flex items-center justify-center text-[10px] ${playlist.schedule.days.includes(i) ? 'bg-blue-600/20 text-blue-400 border border-blue-600/30' : 'bg-slate-900 text-slate-600'}`}>
+                                      {d}
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
 
-                            <div className="flex items-center gap-2">
-                                <button onClick={() => openEditPlaylist(playlist)} className="p-2 bg-slate-800 hover:bg-blue-600/20 hover:text-blue-400 rounded-lg transition-colors">
-                                    <Edit className="w-5 h-5" />
-                                </button>
-                                <button onClick={() => { if(confirm('ยืนยันการลบ?')) removePlaylist(playlist.id) }} className="p-2 bg-slate-800 hover:bg-red-600/20 hover:text-red-400 rounded-lg transition-colors">
-                                    <Trash2 className="w-5 h-5" />
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                    {state.playlists.length === 0 && (
-                        <div className="text-center py-10 text-slate-500 bg-slate-900/50 rounded-xl border border-dashed border-slate-800">
-                            ยังไม่มีเพลย์ลิสต์ กด "สร้างเพลย์ลิสต์ใหม่" เพื่อเริ่มใช้งาน
-                        </div>
-                    )}
-                </div>
-            </div>
-        )
-
-      default:
-        return <div>Select a tab</div>;
-    }
-  };
+                      <div className="flex -space-x-2 overflow-hidden py-1">
+                          {playlist.items.slice(0, 5).map((item, idx) => {
+                              const media = state.mediaLibrary.find(m => m.id === item.mediaId);
+                              return (
+                                  <div key={idx} className="w-8 h-8 rounded-full border-2 border-slate-900 bg-slate-800 overflow-hidden relative">
+                                      {media?.type === MediaType.IMAGE ? (
+                                          <img src={media.url} className="w-full h-full object-cover" />
+                                      ) : (
+                                          <div className="w-full h-full flex items-center justify-center"><Film className="w-3 h-3 text-slate-500"/></div>
+                                      )}
+                                  </div>
+                              );
+                          })}
+                          {playlist.items.length > 5 && (
+                              <div className="w-8 h-8 rounded-full border-2 border-slate-900 bg-slate-800 flex items-center justify-center text-[10px] text-slate-400">
+                                  +{playlist.items.length - 5}
+                              </div>
+                          )}
+                      </div>
+                  </div>
+              ))}
+          </div>
+      </div>
+  );
 
   return (
     <Layout activeTab={activeTab} onTabChange={setActiveTab}>
-      {renderContent()}
-      
-      {/* Cropper Modal */}
-      <Modal isOpen={showCropModal} onClose={() => setShowCropModal(false)} title="ปรับแต่งรูปภาพ">
-        {selectedFileForCrop && (
-            <ImageCropper 
-                file={selectedFileForCrop} 
-                onConfirm={onCropConfirm}
-                onCancel={() => setShowCropModal(false)}
-            />
-        )}
+      {activeTab === 'dashboard' && renderDashboard()}
+      {activeTab === 'media' && renderMedia()}
+      {activeTab === 'playlists' && renderPlaylists()}
+
+      {/* --- MODALS --- */}
+
+      {/* Media Upload Modal */}
+      <Modal 
+        isOpen={isMediaModalOpen} 
+        onClose={() => { setIsMediaModalOpen(false); setUploadFile(null); }} 
+        title="เพิ่มสื่อใหม่"
+      >
+          <div className="flex gap-4 mb-6 border-b border-slate-700">
+              <button onClick={() => setUploadTab('image')} className={`pb-2 px-4 ${uploadTab === 'image' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400'}`}>รูปภาพ</button>
+              <button onClick={() => setUploadTab('video')} className={`pb-2 px-4 ${uploadTab === 'video' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400'}`}>วิดีโอ (Link)</button>
+          </div>
+
+          {uploadTab === 'image' && (
+              !uploadFile ? (
+                  <div className="border-2 border-dashed border-slate-700 rounded-xl p-10 text-center hover:border-blue-500 hover:bg-blue-500/5 transition-all cursor-pointer relative">
+                      <input type="file" accept="image/*" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                      <ImageIcon className="w-12 h-12 text-slate-500 mx-auto mb-4" />
+                      <p className="text-slate-300 font-medium">คลิกเพื่อเลือกรูปภาพ</p>
+                      <p className="text-slate-500 text-sm mt-1">รองรับ JPG, PNG (Max 5MB)</p>
+                  </div>
+              ) : (
+                  <ImageCropper 
+                    file={uploadFile} 
+                    onConfirm={handleConfirmUpload} 
+                    onCancel={() => setUploadFile(null)} 
+                  />
+              )
+          )}
+
+          {uploadTab === 'video' && (
+              <div className="space-y-4">
+                  <div>
+                      <label className="block text-slate-400 text-sm mb-1">ชื่อวิดีโอ</label>
+                      <input value={videoName} onChange={e => setVideoName(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white" placeholder="เช่น โฆษณาตัวใหม่" />
+                  </div>
+                  <div>
+                      <label className="block text-slate-400 text-sm mb-1">ลิงก์วิดีโอ (YouTube หรือ MP4)</label>
+                      <input value={videoUrl} onChange={e => setVideoUrl(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white" placeholder="https://..." />
+                  </div>
+                  {videoUrl && (
+                      <div className="aspect-video bg-black rounded overflow-hidden mt-4">
+                          {getYouTubeId(videoUrl) ? (
+                              <iframe src={`https://www.youtube.com/embed/${getYouTubeId(videoUrl)}`} className="w-full h-full" />
+                          ) : (
+                              <video src={videoUrl} controls className="w-full h-full" onError={(e) => alert("ไม่สามารถโหลดวิดีโอได้")} />
+                          )}
+                      </div>
+                  )}
+                  <div className="flex justify-end pt-4">
+                      <button onClick={handleAddVideo} className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-500">บันทึกวิดีโอ</button>
+                  </div>
+              </div>
+          )}
       </Modal>
 
-      {/* Playlist Modal */}
-      <Modal isOpen={showPlaylistModal} onClose={() => setShowPlaylistModal(false)} title={playlistToEdit ? "แก้ไขเพลย์ลิสต์" : "สร้างเพลย์ลิสต์ใหม่"}>
-         <PlaylistEditor 
-            playlist={playlistToEdit}
-            onSave={handleSavePlaylist}
-            onCancel={() => setShowPlaylistModal(false)}
-         />
+      {/* Playlist Editor Modal */}
+      <Modal
+        isOpen={isPlaylistModalOpen}
+        onClose={() => { setIsPlaylistModalOpen(false); setEditingPlaylist(undefined); }}
+        title={editingPlaylist ? "แก้ไขเพลย์ลิสต์" : "สร้างเพลย์ลิสต์ใหม่"}
+      >
+          <PlaylistEditor 
+            playlist={editingPlaylist} 
+            onSave={handleSavePlaylist} 
+            onCancel={() => { setIsPlaylistModalOpen(false); setEditingPlaylist(undefined); }} 
+          />
+      </Modal>
+
+      {/* AI Modal */}
+      <Modal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} title="สร้างเพลย์ลิสต์ด้วย AI">
+          <div className="space-y-4">
+              <div className="bg-purple-900/20 border border-purple-500/30 p-4 rounded-lg flex gap-3">
+                  <Wand2 className="w-6 h-6 text-purple-400 flex-shrink-0" />
+                  <div>
+                      <h4 className="text-purple-300 font-bold">AI Assistant</h4>
+                      <p className="text-purple-200/70 text-sm">บอกเราเกี่ยวกับธุรกิจของคุณ แล้ว AI จะช่วยจัดเพลย์ลิสต์ที่เหมาะสมจากสื่อที่คุณมี</p>
+                  </div>
+              </div>
+              <textarea 
+                  value={aiPrompt}
+                  onChange={e => setAiPrompt(e.target.value)}
+                  className="w-full h-32 bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-purple-500 outline-none"
+                  placeholder="เช่น ร้านกาแฟบรรยากาศสบายๆ เปิดช่วงเช้า อยากเน้นขายเบเกอรี่และกาแฟร้อน..."
+              ></textarea>
+              <div className="flex justify-end gap-3">
+                  <button onClick={() => setIsAIModalOpen(false)} className="px-4 py-2 text-slate-400 hover:text-white">ยกเลิก</button>
+                  <button 
+                    onClick={handleGenerateAI} 
+                    disabled={isAiLoading || !aiPrompt}
+                    className="px-6 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-lg font-bold flex items-center gap-2 disabled:opacity-50"
+                  >
+                      {isAiLoading ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Wand2 className="w-4 h-4"/>}
+                      <span>{isAiLoading ? 'กำลังคิดวิเคราะห์...' : 'สร้างเพลย์ลิสต์'}</span>
+                  </button>
+              </div>
+          </div>
       </Modal>
 
       {/* Preview Modal */}
