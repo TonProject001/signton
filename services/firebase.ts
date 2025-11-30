@@ -1,4 +1,4 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
 // Config from Firebase Console -> Project settings -> General
@@ -13,7 +13,8 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Use existing app if available to prevent errors during re-renders/hot-reloads
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 // Export Firestore database reference
 export const db = getFirestore(app);
