@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useSignage } from '../context/SignageContext';
 import { MediaType, Playlist, ScreenDevice } from '../types';
-import { WifiOff, Clock, Settings, Save, Monitor, AlertCircle, FileWarning } from 'lucide-react';
+import { WifiOff, Clock, Settings, Save, Monitor, AlertCircle, FileWarning, Volume2, VolumeX, Maximize } from 'lucide-react';
 
-// Helper for YouTube ID (duplicated to avoid export issues across simplified structure)
+// Helper for YouTube ID
 const getYouTubeId = (url: string) => {
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
     const match = url.match(regExp);
@@ -22,8 +22,20 @@ export const PlayerView: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const timerRef = useRef<number | null>(null);
 
-  // Error State for current media
+  // Audio & Display State
+  const [isMuted, setIsMuted] = useState(false); // Default to Sound ON (but browser may block)
   const [mediaError, setMediaError] = useState(false);
+
+  // --- Helpers ---
+  const toggleFullscreen = () => {
+      if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(err => {
+              console.error(`Error attempting to enable fullscreen: ${err.message}`);
+          });
+      } else {
+          document.exitFullscreen();
+      }
+  };
 
   // --- Registration Logic ---
   const handleSaveDeviceId = async () => {
@@ -32,6 +44,9 @@ export const PlayerView: React.FC = () => {
       localStorage.setItem('signage_device_id', newId);
       setDeviceId(newId);
       
+      // Attempt fullscreen on registration
+      toggleFullscreen();
+
       // Register to Firestore
       const newDevice: ScreenDevice = {
           id: newId,
@@ -179,7 +194,15 @@ export const PlayerView: React.FC = () => {
 
   const onVideoError = (e: any) => {
       console.error("Video Playback Error:", e);
-      setMediaError(true);
+      // If error is likely due to autoplay-with-sound policy blocking
+      if (videoRef.current && !videoRef.current.muted && !isMuted) {
+          console.warn("Autoplay with sound blocked. Muting and retrying...");
+          setIsMuted(true);
+          videoRef.current.muted = true;
+          videoRef.current.play().catch(() => setMediaError(true));
+      } else {
+          setMediaError(true);
+      }
   };
 
   // --- RENDER: SETUP SCREEN ---
@@ -206,7 +229,7 @@ export const PlayerView: React.FC = () => {
                 className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 <Save className="w-4 h-4" />
-                <span>บันทึกและเริ่มทำงาน</span>
+                <span>บันทึกและเริ่มทำงาน (Fullscreen)</span>
               </button>
             </div>
          </div>
@@ -237,12 +260,24 @@ export const PlayerView: React.FC = () => {
                 <p className="text-xs font-mono text-slate-600">ID: <span className="text-blue-400">{deviceId}</span></p>
             </div>
         </div>
-        <button 
-          onClick={handleResetDevice}
-          className="absolute bottom-4 right-4 p-2 text-slate-700 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-2"
-        >
-          <Settings className="w-4 h-4" />
-        </button>
+        
+        {/* Controls Overlay */}
+        <div className="absolute bottom-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button 
+            onClick={toggleFullscreen}
+            className="p-2 text-slate-500 hover:text-white bg-slate-900/50 rounded-lg"
+            title="Fullscreen"
+            >
+            <Maximize className="w-5 h-5" />
+            </button>
+            <button 
+            onClick={handleResetDevice}
+            className="p-2 text-slate-500 hover:text-red-500 bg-slate-900/50 rounded-lg"
+            title="Reset ID"
+            >
+            <Settings className="w-5 h-5" />
+            </button>
+        </div>
       </div>
     );
   }
@@ -263,7 +298,7 @@ export const PlayerView: React.FC = () => {
 
   // --- RENDER: PLAYER ---
   return (
-    <div className="h-screen w-screen bg-black overflow-hidden relative flex items-center justify-center group">
+    <div className="h-screen w-screen bg-black overflow-hidden relative flex items-center justify-center group cursor-none hover:cursor-default">
       {/* 1. Image */}
       {currentMedia.type === MediaType.IMAGE && (
         <img
@@ -279,12 +314,16 @@ export const PlayerView: React.FC = () => {
       {/* 2. Video (Native MP4) or YouTube */}
       {currentMedia.type === MediaType.VIDEO && (
         youtubeId ? (
-            <div className="w-full h-full bg-black relative pointer-events-none">
-                 {/* Pointer-events-none prevents user interaction on signage */}
+            <div className="w-full h-full bg-black relative">
+                 {/* 
+                    Pointer-events-none prevents user interaction on signage. 
+                    Mute param logic: 1 = mute, 0 = unmute.
+                 */}
+                 <div className="absolute inset-0 z-10"></div> {/* Shield to prevent clicking youtube */}
                  <iframe 
                     width="100%" 
                     height="100%" 
-                    src={`https://www.youtube.com/embed/${youtubeId}?autoplay=1&controls=0&mute=1&rel=0&iv_load_policy=3&modestbranding=1`}
+                    src={`https://www.youtube.com/embed/${youtubeId}?autoplay=1&controls=0&mute=${isMuted ? 1 : 0}&rel=0&iv_load_policy=3&modestbranding=1&playlist=${youtubeId}&loop=1`}
                     title="YouTube video player" 
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
                     className="w-full h-full object-cover"
@@ -296,7 +335,7 @@ export const PlayerView: React.FC = () => {
                 ref={videoRef}
                 src={currentMedia.url}
                 autoPlay
-                muted
+                muted={isMuted}
                 playsInline
                 onEnded={onVideoEnded}
                 onError={onVideoError}
@@ -305,15 +344,45 @@ export const PlayerView: React.FC = () => {
         )
       )}
 
-      {/* Secret Reset Button */}
-      <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity z-50">
+      {/* Control Overlay (Top Right - Hidden by default) */}
+      <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity z-50 flex gap-2">
+          
+          {/* Sound Toggle */}
+          <button 
+            onClick={() => setIsMuted(!isMuted)}
+            className={`p-3 rounded-full backdrop-blur transition-colors ${isMuted ? 'bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-white' : 'bg-green-500/20 text-green-400 hover:bg-green-500 hover:text-white'}`}
+            title={isMuted ? "Unmute" : "Mute"}
+          >
+            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+          </button>
+
+          {/* Fullscreen Toggle */}
+          <button 
+            onClick={toggleFullscreen}
+            className="bg-black/50 hover:bg-blue-600/80 text-white p-3 rounded-full backdrop-blur transition-colors"
+            title="Toggle Fullscreen"
+          >
+            <Maximize className="w-5 h-5" />
+          </button>
+
+          {/* Reset Settings */}
           <button 
             onClick={handleResetDevice}
-            className="bg-black/50 hover:bg-red-600/80 text-white p-2 rounded-full backdrop-blur"
+            className="bg-black/50 hover:bg-red-600/80 text-white p-3 rounded-full backdrop-blur transition-colors"
+            title="Reset Settings"
           >
-            <Settings className="w-4 h-4" />
+            <Settings className="w-5 h-5" />
           </button>
       </div>
+
+      {/* Audio Warning Overlay (If sound is ON but video starts) */}
+      {!isMuted && currentMedia.type === MediaType.VIDEO && (
+        <div className="absolute bottom-10 left-10 pointer-events-none opacity-50 z-40">
+           <div className="bg-black/60 text-white px-3 py-1 rounded-full flex items-center gap-2 text-xs">
+              <Volume2 className="w-3 h-3" /> Audio On
+           </div>
+        </div>
+      )}
     </div>
   );
 };
