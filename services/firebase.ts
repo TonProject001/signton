@@ -13,10 +13,18 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-// Use existing app if available to prevent errors during re-renders/hot-reloads
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-
-console.log("Firebase initialized:", app.name);
+let app;
+try {
+  // Check if firebase app is already initialized to avoid "already exists" error
+  if (getApps().length > 0) {
+    app = getApp();
+  } else {
+    app = initializeApp(firebaseConfig);
+  }
+  console.log("Firebase initialized successfully");
+} catch (error) {
+  console.error("Firebase initialization error:", error);
+}
 
 // Export Firestore database reference
 export const db = getFirestore(app);
