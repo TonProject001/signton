@@ -1,8 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useSignage } from '../context/SignageContext';
 import { Layout } from '../components/Layout';
-import { Plus, Tv, Play, Trash2, Upload, Clock, Film, Image as ImageIcon, Save, X, Edit, Crop, Monitor, Smartphone, Link as LinkIcon, Eye, GripVertical } from 'lucide-react';
+import { Plus, Tv, Play, Trash2, Upload, Clock, Film, Image as ImageIcon, Save, X, Edit, Crop, Monitor, Smartphone, Link as LinkIcon, Eye, GripVertical, AlertTriangle, Youtube } from 'lucide-react';
 import { MediaType, MediaItem, Playlist, Orientation } from '../types';
+
+// --- Helper: Get YouTube ID ---
+const getYouTubeId = (url: string) => {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+};
 
 // --- Components for Dialogs/Modals ---
 
@@ -25,21 +32,69 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; chi
 
 // --- Preview Modal Component ---
 const PreviewModal: React.FC<{ item: MediaItem | null; onClose: () => void }> = ({ item, onClose }) => {
+    const [error, setError] = useState(false);
+
+    useEffect(() => {
+        setError(false);
+    }, [item]);
+
     if (!item) return null;
+
+    const youtubeId = item.type === MediaType.VIDEO ? getYouTubeId(item.url) : null;
+
     return (
         <div className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4" onClick={onClose}>
             <div className="relative max-w-5xl max-h-full w-full flex flex-col items-center" onClick={e => e.stopPropagation()}>
                 <button onClick={onClose} className="absolute -top-10 right-0 text-white hover:text-red-400 p-2">
                     <X className="w-8 h-8" />
                 </button>
-                {item.type === MediaType.IMAGE ? (
-                    <img src={item.url} alt={item.name} className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl border border-slate-700" />
+                
+                {error ? (
+                    <div className="bg-slate-800 border border-red-500/50 rounded-lg p-10 flex flex-col items-center text-center">
+                        <AlertTriangle className="w-16 h-16 text-red-500 mb-4" />
+                        <h3 className="text-xl font-bold text-white">ไม่สามารถเล่นไฟล์นี้ได้</h3>
+                        <p className="text-slate-400 mt-2">ลิงก์อาจไม่ถูกต้อง หรือไฟล์ถูกลบไปแล้ว</p>
+                        <p className="text-xs text-slate-500 mt-4 break-all bg-black/30 p-2 rounded">{item.url}</p>
+                    </div>
                 ) : (
-                    <video src={item.url} controls autoPlay className="max-w-full max-h-[80vh] rounded-lg shadow-2xl border border-slate-700" />
+                    item.type === MediaType.IMAGE ? (
+                        <img 
+                            src={item.url} 
+                            alt={item.name} 
+                            onError={() => setError(true)}
+                            className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl border border-slate-700" 
+                        />
+                    ) : (
+                        youtubeId ? (
+                             <div className="w-full aspect-video max-h-[80vh] rounded-lg overflow-hidden shadow-2xl border border-slate-700 bg-black">
+                                <iframe 
+                                    width="100%" 
+                                    height="100%" 
+                                    src={`https://www.youtube.com/embed/${youtubeId}?autoplay=1`}
+                                    title="YouTube video player" 
+                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                    allowFullScreen
+                                    className="w-full h-full"
+                                ></iframe>
+                             </div>
+                        ) : (
+                            <video 
+                                src={item.url} 
+                                controls 
+                                autoPlay 
+                                onError={() => setError(true)}
+                                className="max-w-full max-h-[80vh] rounded-lg shadow-2xl border border-slate-700" 
+                            />
+                        )
+                    )
                 )}
+
                 <div className="mt-4 text-center">
                     <h3 className="text-xl font-bold text-white">{item.name}</h3>
-                    <p className="text-slate-400 text-sm">ประเภท: {item.type === MediaType.IMAGE ? 'รูปภาพ' : 'วิดีโอ'} | แนว: {item.orientation === 'portrait' ? 'แนวตั้ง' : 'แนวนอน'}</p>
+                    <p className="text-slate-400 text-sm">
+                        ประเภท: {item.type === MediaType.IMAGE ? 'รูปภาพ' : (youtubeId ? 'YouTube' : 'วิดีโอ MP4')} | 
+                        แนว: {item.orientation === 'portrait' ? 'แนวตั้ง' : 'แนวนอน'}
+                    </p>
                 </div>
             </div>
         </div>
@@ -248,7 +303,9 @@ const PlaylistEditor: React.FC<{
   const availableMedia = state.mediaLibrary;
 
   const handleAddItem = (media: MediaItem) => {
-    setSelectedItems([...selectedItems, { mediaId: media.id, duration: media.duration || 10 }]);
+    // Default duration: 15s for image, 30s for video/youtube as a placeholder
+    const defaultDur = media.type === MediaType.VIDEO ? 30 : 10;
+    setSelectedItems([...selectedItems, { mediaId: media.id, duration: defaultDur }]);
   };
 
   const handleRemoveItem = (index: number) => {
@@ -402,25 +459,31 @@ const PlaylistEditor: React.FC<{
           <div className="flex flex-col bg-slate-950/50 rounded-xl border border-slate-800 overflow-hidden">
              <div className="p-3 bg-slate-800 font-semibold text-slate-300">A. เลือกสื่อจากคลัง (คลิกเพื่อเพิ่ม)</div>
              <div className="p-4 overflow-y-auto flex-1 grid grid-cols-2 gap-3 custom-scrollbar content-start">
-                {availableMedia.map(item => (
-                    <button 
-                        key={item.id}
-                        onClick={() => handleAddItem(item)}
-                        className="relative group aspect-video bg-slate-900 rounded-lg overflow-hidden border border-slate-700 hover:border-blue-500 text-left transition-all hover:shadow-lg"
-                    >
-                        {item.type === MediaType.IMAGE ? (
-                            <img src={item.url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                        ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-slate-800"><Film className="w-8 h-8 text-slate-500 group-hover:text-blue-400" /></div>
-                        )}
-                        <div className="absolute bottom-0 inset-x-0 bg-black/70 p-2 truncate text-xs text-white">
-                            {item.name}
-                        </div>
-                         <div className="absolute top-1 right-1 px-1.5 py-0.5 rounded bg-black/50 text-[10px] text-white">
-                             {item.orientation === 'landscape' ? 'แนวนอน' : 'แนวตั้ง'}
-                         </div>
-                    </button>
-                ))}
+                {availableMedia.map(item => {
+                    const isYoutube = item.type === MediaType.VIDEO && getYouTubeId(item.url);
+                    return (
+                        <button 
+                            key={item.id}
+                            onClick={() => handleAddItem(item)}
+                            className="relative group aspect-video bg-slate-900 rounded-lg overflow-hidden border border-slate-700 hover:border-blue-500 text-left transition-all hover:shadow-lg"
+                        >
+                            {item.type === MediaType.IMAGE ? (
+                                <img src={item.url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-slate-800 relative">
+                                    {isYoutube ? <Youtube className="w-8 h-8 text-red-500 z-10" /> : <Film className="w-8 h-8 text-slate-500 group-hover:text-blue-400" />}
+                                    {isYoutube && <img src={`https://img.youtube.com/vi/${getYouTubeId(item.url)}/hqdefault.jpg`} className="absolute inset-0 w-full h-full object-cover opacity-50" />}
+                                </div>
+                            )}
+                            <div className="absolute bottom-0 inset-x-0 bg-black/70 p-2 truncate text-xs text-white z-20">
+                                {item.name}
+                            </div>
+                            <div className="absolute top-1 right-1 px-1.5 py-0.5 rounded bg-black/50 text-[10px] text-white z-20">
+                                {item.orientation === 'landscape' ? 'แนวนอน' : 'แนวตั้ง'}
+                            </div>
+                        </button>
+                    )
+                })}
              </div>
           </div>
 
@@ -434,6 +497,7 @@ const PlaylistEditor: React.FC<{
                 {selectedItems.map((item, idx) => {
                     const media = state.mediaLibrary.find(m => m.id === item.mediaId);
                     if (!media) return null;
+                    const isYoutube = media.type === MediaType.VIDEO && getYouTubeId(media.url);
                     
                     const min = Math.floor(item.duration / 60);
                     const sec = item.duration % 60;
@@ -450,21 +514,24 @@ const PlaylistEditor: React.FC<{
                             <div className="text-slate-600 cursor-move">
                                 <GripVertical className="w-5 h-5" />
                             </div>
-                            <div className="w-8 h-8 rounded bg-slate-800 flex-shrink-0 text-slate-500 font-bold flex items-center justify-center border border-slate-700">
+                            <div className="w-8 h-8 rounded bg-slate-800 flex-shrink-0 text-slate-500 font-bold flex items-center justify-center border border-slate-700 overflow-hidden relative">
                                 {idx + 1}
                             </div>
-                            <div className="w-16 h-10 bg-black rounded overflow-hidden flex-shrink-0">
+                            <div className="w-16 h-10 bg-black rounded overflow-hidden flex-shrink-0 relative">
                                 {media.type === MediaType.IMAGE ? (
                                     <img src={media.url} className="w-full h-full object-cover" />
                                 ) : (
-                                    <div className="w-full h-full flex items-center justify-center"><Film className="w-4 h-4" /></div>
+                                    <div className="w-full h-full flex items-center justify-center">
+                                         {isYoutube ? <Youtube className="w-4 h-4 text-red-500 z-10" /> : <Film className="w-4 h-4" />}
+                                         {isYoutube && <img src={`https://img.youtube.com/vi/${getYouTubeId(media.url)}/mqdefault.jpg`} className="absolute inset-0 w-full h-full object-cover opacity-50" />}
+                                    </div>
                                 )}
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="text-sm truncate text-white">{media.name}</p>
                                 <div className="flex items-center gap-2 mt-1">
                                     <Clock className="w-3 h-3 text-slate-500" />
-                                    <div className="flex items-center gap-1 text-xs text-slate-400 bg-slate-950 rounded border border-slate-700 px-1">
+                                    <div className={`flex items-center gap-1 text-xs text-slate-400 bg-slate-950 rounded border px-1 ${isYoutube ? 'border-yellow-600/50' : 'border-slate-700'}`}>
                                         <input 
                                             type="number" 
                                             value={min} 
@@ -483,6 +550,7 @@ const PlaylistEditor: React.FC<{
                                         />
                                         <span>วิ.</span>
                                     </div>
+                                    {isYoutube && <span className="text-[10px] text-yellow-500">* ตั้งเวลาให้ตรงกับคลิป</span>}
                                 </div>
                             </div>
                             <button onClick={() => handleRemoveItem(idx)} className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-900/20 rounded">
@@ -558,12 +626,13 @@ export const AdminDashboard: React.FC = () => {
 
   const handleAddVideoLink = () => {
     if (videoUrlInput && videoNameInput) {
+        // Updated: Allow YouTube links
         const newItem: MediaItem = {
             id: Date.now().toString(),
             name: videoNameInput,
             type: MediaType.VIDEO,
             url: videoUrlInput,
-            duration: 15,
+            duration: 30, // Default duration for video/youtube
             orientation: 'landscape' // Default for video
         };
         addMedia(newItem);
@@ -664,52 +733,64 @@ export const AdminDashboard: React.FC = () => {
             </div>
 
             {/* Video Input */}
-            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex gap-4 items-end flex-wrap">
-                <div className="flex-1 min-w-[200px]">
-                    <label className="block text-xs text-slate-400 mb-1">ชื่อวิดีโอ</label>
-                    <input type="text" value={videoNameInput} onChange={e => setVideoNameInput(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm" placeholder="ชื่อวิดีโอ..." />
+            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col gap-2">
+                <div className="flex gap-4 items-end flex-wrap">
+                    <div className="flex-1 min-w-[200px]">
+                        <label className="block text-xs text-slate-400 mb-1">ชื่อวิดีโอ / YouTube</label>
+                        <input type="text" value={videoNameInput} onChange={e => setVideoNameInput(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm" placeholder="เช่น โฆษณาตัวที่ 1" />
+                    </div>
+                    <div className="flex-[2] min-w-[300px]">
+                        <label className="block text-xs text-slate-400 mb-1">ลิงก์วิดีโอ (YouTube หรือไฟล์ .mp4)</label>
+                        <input type="text" value={videoUrlInput} onChange={e => setVideoUrlInput(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm" placeholder="https://youtube.com/watch?v=... หรือ https://site.com/video.mp4" />
+                    </div>
+                    <button onClick={handleAddVideoLink} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
+                        <LinkIcon className="w-4 h-4" /> เพิ่มวิดีโอ
+                    </button>
                 </div>
-                <div className="flex-[2] min-w-[300px]">
-                    <label className="block text-xs text-slate-400 mb-1">ลิงก์วิดีโอ (MP4)</label>
-                    <input type="text" value={videoUrlInput} onChange={e => setVideoUrlInput(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm" placeholder="https://..." />
-                </div>
-                <button onClick={handleAddVideoLink} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg flex items-center gap-2">
-                    <LinkIcon className="w-4 h-4" /> เพิ่มวิดีโอ
-                </button>
+                <p className="text-xs text-slate-500 flex items-center gap-1">
+                    <Youtube className="w-3 h-3 text-red-500" />
+                    รองรับ YouTube Link (กรุณาตั้งเวลาเล่นให้ตรงกับความยาวคลิป) และไฟล์ .mp4
+                </p>
             </div>
             
             {/* Gallery */}
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {state.mediaLibrary.map(item => (
-                <div key={item.id} className="group relative bg-slate-900 rounded-xl overflow-hidden border border-slate-800 hover:border-blue-500/50 transition-all shadow-sm hover:shadow-xl">
-                  <div className="aspect-video bg-slate-800 relative cursor-pointer" onClick={() => setPreviewItem(item)}>
-                    {item.type === MediaType.IMAGE ? (
-                        <img src={item.url} alt={item.name} className="w-full h-full object-cover" />
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center"><Film className="w-8 h-8 text-slate-500" /></div>
-                    )}
-                    <div className="absolute top-2 right-2 flex gap-1 z-10">
-                         {/* Preview Icon */}
-                        <div className="w-6 h-6 bg-black/60 rounded-full flex items-center justify-center text-white backdrop-blur hover:bg-blue-600 transition-colors">
-                            <Eye className="w-3 h-3" />
+              {state.mediaLibrary.map(item => {
+                const isYoutube = item.type === MediaType.VIDEO && getYouTubeId(item.url);
+                return (
+                    <div key={item.id} className="group relative bg-slate-900 rounded-xl overflow-hidden border border-slate-800 hover:border-blue-500/50 transition-all shadow-sm hover:shadow-xl">
+                    <div className="aspect-video bg-slate-800 relative cursor-pointer" onClick={() => setPreviewItem(item)}>
+                        {item.type === MediaType.IMAGE ? (
+                            <img src={item.url} alt={item.name} className="w-full h-full object-cover" />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center relative">
+                                {isYoutube ? <Youtube className="w-8 h-8 text-red-500 z-10" /> : <Film className="w-8 h-8 text-slate-500" />}
+                                {isYoutube && <img src={`https://img.youtube.com/vi/${getYouTubeId(item.url)}/hqdefault.jpg`} className="absolute inset-0 w-full h-full object-cover opacity-50" />}
+                            </div>
+                        )}
+                        <div className="absolute top-2 right-2 flex gap-1 z-10">
+                            {/* Preview Icon */}
+                            <div className="w-6 h-6 bg-black/60 rounded-full flex items-center justify-center text-white backdrop-blur hover:bg-blue-600 transition-colors">
+                                <Eye className="w-3 h-3" />
+                            </div>
+                        </div>
+                        <div className="absolute bottom-2 right-2 flex gap-1 z-10">
+                            <span className="px-1.5 py-0.5 bg-black/60 rounded text-[10px] text-white backdrop-blur">
+                                {item.orientation === 'portrait' ? 'แนวตั้ง' : 'แนวนอน'}
+                            </span>
                         </div>
                     </div>
-                     <div className="absolute bottom-2 right-2 flex gap-1 z-10">
-                        <span className="px-1.5 py-0.5 bg-black/60 rounded text-[10px] text-white backdrop-blur">
-                            {item.orientation === 'portrait' ? 'แนวตั้ง' : 'แนวนอน'}
-                        </span>
+                    <div className="p-3 flex justify-between items-start">
+                        <div className="min-w-0">
+                            <p className="font-medium text-sm truncate text-slate-200">{item.name}</p>
+                        </div>
+                        <button onClick={(e) => { e.stopPropagation(); removeMedia(item.id); }} className="text-slate-600 hover:text-red-400 transition-colors p-1">
+                            <Trash2 className="w-4 h-4" />
+                        </button>
                     </div>
-                  </div>
-                  <div className="p-3 flex justify-between items-start">
-                    <div className="min-w-0">
-                        <p className="font-medium text-sm truncate text-slate-200">{item.name}</p>
                     </div>
-                    <button onClick={(e) => { e.stopPropagation(); removeMedia(item.id); }} className="text-slate-600 hover:text-red-400 transition-colors p-1">
-                        <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         );
@@ -755,11 +836,14 @@ export const AdminDashboard: React.FC = () => {
                                 {playlist.items.slice(0, 5).map((item, idx) => {
                                     const media = state.mediaLibrary.find(m => m.id === item.mediaId);
                                     if(!media) return null;
+                                    const isYoutube = media.type === MediaType.VIDEO && getYouTubeId(media.url);
                                     return (
                                         <div key={idx} className="w-10 h-10 rounded-full border-2 border-slate-900 bg-slate-800 overflow-hidden relative">
                                             {media.type === MediaType.IMAGE ? 
                                                 <img src={media.url} className="w-full h-full object-cover" /> :
-                                                <div className="w-full h-full flex items-center justify-center"><Film className="w-4 h-4" /></div>
+                                                <div className="w-full h-full flex items-center justify-center">
+                                                    {isYoutube ? <Youtube className="w-4 h-4 text-red-500 z-10" /> : <Film className="w-4 h-4" />}
+                                                </div>
                                             }
                                         </div>
                                     );
