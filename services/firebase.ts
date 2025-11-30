@@ -13,17 +13,18 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
+// Using a singleton pattern to avoid re-initialization in strict mode
 let app;
 try {
-  // Check if firebase app is already initialized to avoid "already exists" error
-  if (getApps().length > 0) {
-    app = getApp();
-  } else {
+  if (getApps().length === 0) {
     app = initializeApp(firebaseConfig);
+    console.log("Firebase App Initialized");
+  } else {
+    app = getApp();
+    console.log("Firebase App reused");
   }
-  console.log("Firebase initialized successfully");
-} catch (error) {
-  console.error("Firebase initialization error:", error);
+} catch (e) {
+  console.error("Critical Firebase Init Error:", e);
 }
 
 // Export Firestore database reference
