@@ -7,50 +7,33 @@
     <title>SignTon v.2 Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-      // Global Error Handler for TV Boxes/Kiosk Mode
+      // Global Error Handler
       window.onerror = function(msg, url, line, col, error) {
         const log = document.getElementById('error-log');
-        const root = document.getElementById('root');
+        const loader = document.getElementById('loading-indicator');
         if (log) {
           log.style.display = 'block';
-          // Hide loader if error occurs
-          const loader = document.getElementById('loading-indicator');
           if(loader) loader.style.display = 'none';
-          
-          log.innerHTML += `<div class="mb-2"><strong>Error:</strong> ${msg}<br/><span class="text-xs opacity-75">${url}:${line}</span></div>`;
+          log.innerHTML += `<div class="mb-2 p-2 border-b border-red-500/30"><strong>Error:</strong> ${msg}<br/><span class="text-xs opacity-75">${url}:${line}</span></div>`;
         }
         return false;
       };
 
       window.onunhandledrejection = function(event) {
         const log = document.getElementById('error-log');
+        const loader = document.getElementById('loading-indicator');
         if (log) {
           log.style.display = 'block';
-           // Hide loader if error occurs
-          const loader = document.getElementById('loading-indicator');
           if(loader) loader.style.display = 'none';
-
-          log.innerHTML += `<div class="mb-2"><strong>Promise Error:</strong> ${event.reason}</div>`;
+          log.innerHTML += `<div class="mb-2 p-2 border-b border-red-500/30"><strong>Promise Error:</strong> ${event.reason}</div>`;
         }
       };
     </script>
     <style>
-      /* Hide scrollbar for the player view */
-      .no-scrollbar::-webkit-scrollbar {
-        display: none;
-      }
-      .no-scrollbar {
-        -ms-overflow-style: none;
-        scrollbar-width: none;
-      }
-      @keyframes fade-in {
-        from { opacity: 0; }
-        to { opacity: 1; }
-      }
-      .animate-fade-in {
-        animation: fade-in 0.5s ease-in-out;
-      }
-      /* Loading Spinner */
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+      .animate-fade-in { animation: fade-in 0.5s ease-in-out; }
       .loader {
         border: 4px solid #1e293b;
         border-radius: 50%;
@@ -59,38 +42,67 @@
         height: 40px;
         animation: spin 1s linear infinite;
       }
-      @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
-  <script type="importmap">
+    <!-- 
+      CRITICAL UPDATE: 
+      1. Switched to esm.sh for React 18 (Most stable)
+      2. Switched to gstatic for Firebase (Official Google CDN for Browsers)
+      3. Explicitly mapped react-dom/client
+    -->
+    <script type="importmap">
 {
   "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client?deps=react@18.2.0",
+    "react-dom": "https://esm.sh/react-dom@18.2.0?deps=react@18.2.0",
+    "lucide-react": "https://esm.sh/lucide-react@0.263.1?deps=react@18.2.0",
+    "@google/genai": "https://esm.sh/@google/genai@0.1.1",
+    "react-router-dom": "https://esm.sh/react-router-dom@6.22.3?deps=react@18.2.0,react-dom@18.2.0",
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js",
+    "firebase/firestore": "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
-    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^6.22.3",
-    "firebase/app": "https://esm.sh/firebase@10.13.2/app",
-    "firebase/firestore": "https://esm.sh/firebase@10.13.2/firestore?deps=firebase@10.13.2/app",
     "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/"
   }
 }
 </script>
 </head>
   <body class="bg-slate-950 text-slate-100 antialiased overflow-hidden">
-    <!-- Error Logger (Hidden by default) -->
-    <div id="error-log" class="fixed top-0 left-0 w-full bg-red-900/90 text-white p-4 z-[9999] hidden font-mono text-sm max-h-screen overflow-auto border-b-2 border-red-500">
-      <h3 class="font-bold border-b border-red-400 pb-2 mb-2 text-red-200">System Error Log:</h3>
+    <!-- Error Logger -->
+    <div id="error-log" class="fixed top-0 left-0 w-full h-full bg-red-950/95 text-white p-6 z-[9999] hidden font-mono text-sm overflow-auto">
+      <h3 class="font-bold text-xl border-b border-red-500 pb-2 mb-4 text-red-200">System Error Log</h3>
+      <p class="text-xs text-slate-300 mb-4">Please take a photo of this screen and send to support.</p>
     </div>
 
     <div id="root" class="h-screen w-screen">
-       <div id="loading-indicator" class="h-full w-full flex flex-col items-center justify-center">
-          <div class="loader mb-4"></div>
-          <p class="text-slate-500 text-sm font-mono animate-pulse">Initializing System...</p>
+       <div id="loading-indicator" class="h-full w-full flex flex-col items-center justify-center space-y-4">
+          <div class="loader"></div>
+          <div class="text-center">
+            <p id="loading-text" class="text-slate-400 text-sm font-mono animate-pulse">Initializing System...</p>
+            <p id="loading-subtext" class="text-slate-600 text-xs mt-2">Loading Core Modules</p>
+          </div>
        </div>
     </div>
+
+    <!-- Timeout Detection Script -->
+    <script>
+      setTimeout(() => {
+        const root = document.getElementById('root');
+        // If root still contains loading-indicator, it means React failed to mount
+        if (document.getElementById('loading-indicator')) {
+          const text = document.getElementById('loading-text');
+          const sub = document.getElementById('loading-subtext');
+          if (text) {
+             text.innerText = "System Timeout";
+             text.className = "text-yellow-500 font-bold text-lg";
+          }
+          if (sub) {
+             sub.innerHTML = "Internet might be slow or unstable.<br/>Try refreshing the page.";
+             sub.className = "text-slate-400 text-sm mt-2";
+          }
+        }
+      }, 15000); // 15 seconds timeout
+    </script>
   </body>
 </html>
