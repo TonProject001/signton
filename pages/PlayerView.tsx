@@ -1,13 +1,18 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useSignage } from '../context/SignageContext';
 import { MediaType, Playlist, ScreenDevice } from '../types';
-import { WifiOff, Clock, Settings, Save, Monitor, AlertCircle, FileWarning, Volume2, VolumeX, Maximize } from 'lucide-react';
+import { Clock, Settings, Save, Monitor, AlertCircle, FileWarning, Volume2, VolumeX, Maximize } from 'lucide-react';
 
-// Helper for YouTube ID
-const getYouTubeId = (url: string) => {
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = url.match(regExp);
-    return (match && match[2].length === 11) ? match[2] : null;
+// Safe helper for YouTube ID
+const getYouTubeId = (url: string | undefined | null) => {
+    if (!url || typeof url !== 'string') return null;
+    try {
+        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+        const match = url.match(regExp);
+        return (match && match[2].length === 11) ? match[2] : null;
+    } catch (e) {
+        return null;
+    }
 };
 
 export const PlayerView: React.FC = () => {
@@ -23,17 +28,17 @@ export const PlayerView: React.FC = () => {
   const timerRef = useRef<number | null>(null);
 
   // Audio & Display State
-  const [isMuted, setIsMuted] = useState(false); // Default to Sound ON (but browser may block)
+  const [isMuted, setIsMuted] = useState(false); 
   const [mediaError, setMediaError] = useState(false);
 
   // --- Helpers ---
   const toggleFullscreen = () => {
       if (!document.fullscreenElement) {
           document.documentElement.requestFullscreen().catch(err => {
-              console.error(`Error attempting to enable fullscreen: ${err.message}`);
+              console.log(`Fullscreen error: ${err.message}`);
           });
       } else {
-          document.exitFullscreen();
+          document.exitFullscreen().catch(() => {});
       }
   };
 
@@ -149,7 +154,7 @@ export const PlayerView: React.FC = () => {
   const mediaType = currentMedia?.type;
   
   // Detection for YouTube
-  const youtubeId = (currentMedia?.type === MediaType.VIDEO && currentMedia.url) ? getYouTubeId(currentMedia.url) : null;
+  const youtubeId = (currentMedia?.type === MediaType.VIDEO && currentMedia?.url) ? getYouTubeId(currentMedia.url) : null;
   
   const displayDurationMs = ((currentPlaylistItem?.duration || currentMedia?.duration || 10) * 1000);
 
@@ -198,8 +203,10 @@ export const PlayerView: React.FC = () => {
       if (videoRef.current && !videoRef.current.muted && !isMuted) {
           console.warn("Autoplay with sound blocked. Muting and retrying...");
           setIsMuted(true);
-          videoRef.current.muted = true;
-          videoRef.current.play().catch(() => setMediaError(true));
+          if (videoRef.current) {
+              videoRef.current.muted = true;
+              videoRef.current.play().catch(() => setMediaError(true));
+          }
       } else {
           setMediaError(true);
       }
@@ -229,7 +236,7 @@ export const PlayerView: React.FC = () => {
                 className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 <Save className="w-4 h-4" />
-                <span>บันทึกและเริ่มทำงาน (Fullscreen)</span>
+                <span>บันทึกและเริ่มทำงาน (เต็มจอ)</span>
               </button>
             </div>
          </div>
@@ -319,7 +326,7 @@ export const PlayerView: React.FC = () => {
                     Pointer-events-none prevents user interaction on signage. 
                     Mute param logic: 1 = mute, 0 = unmute.
                  */}
-                 <div className="absolute inset-0 z-10"></div> {/* Shield to prevent clicking youtube */}
+                 <div className="absolute inset-0 z-10 bg-transparent"></div> {/* Shield to prevent clicking youtube */}
                  <iframe 
                     width="100%" 
                     height="100%" 
