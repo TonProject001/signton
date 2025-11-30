@@ -13,14 +13,10 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-let app;
-try {
-  // Use existing app if available to prevent errors during re-renders/hot-reloads
-  app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-  console.log("Firebase initialized successfully:", app.name);
-} catch (error) {
-  console.error("Failed to initialize Firebase:", error);
-}
+// Use existing app if available to prevent errors during re-renders/hot-reloads
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+
+console.log("Firebase initialized:", app.name);
 
 // Export Firestore database reference
 export const db = getFirestore(app);
